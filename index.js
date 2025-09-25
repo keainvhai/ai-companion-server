@@ -7,7 +7,11 @@ require("dotenv").config({ path: path.resolve(__dirname, "../.env") });
 const db = require("./models");
 
 const app = express();
-app.use(cors());
+app.use(
+  cors({
+    origin: "https://ai-companion-dox.vercel.app",
+  })
+);
 app.use(express.json());
 
 // 测试路由
