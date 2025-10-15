@@ -22,7 +22,12 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING,
         allowNull: true,
       },
+      meta: {
+        type: DataTypes.JSON, // ← 用来存每层分析结果
+        allowNull: true,
+      },
     },
+
     {
       tableName: "CompanionMessages",
       freezeTableName: true,

@@ -25,10 +25,11 @@ app.use("/companion", companionRoutes);
 
 // 测试数据库连接
 db.sequelize
+
   .authenticate()
   .then(() => {
     console.log("✅ Database connected successfully!");
-
+    return db.sequelize.sync({ alter: true });
     // 🔎 测试能否查到 AiCompanionPrompts 表里的数据
     // return db.AiCompanionPrompts.findAll({ limit: 1 });
   })

@@ -4,6 +4,8 @@ const OpenAI = require("openai");
 
 const { CompanionMessage } = require("../models");
 
+const perceptionLayer = require("../utils/perceptionLayer");
+
 require("dotenv").config();
 
 const openai = new OpenAI({
@@ -23,20 +25,16 @@ router.post("/", async (req, res) => {
       return res.status(400).json({ error: "Empty or invalid messages." });
     }
 
-    // 📝 取最后一条用户消息
+    // 1️⃣ 提取用户输入
     const lastUserPrompt = messages
       .filter((m) => m.role === "user" && m.content?.trim())
       .map((m) => m.content.trim())
       .pop();
 
-    // 📌 写入数据库（先保存用户输入，response=null）
-    // let createdLog = null;
-    // if (lastUserPrompt) {
-    //   createdLog = await AiCompanionPrompts.create({
-    //     userId: null, // ✅ 暂时允许匿名
-    //     prompt: lastUserPrompt,
-    //   });
-    // }
+    // 2️⃣ 调用感知层分析
+    const perception = perceptionLayer(lastUserPrompt);
+
+    // 3️⃣ 保存用户消息（带 meta）
     if (lastUserPrompt) {
       await CompanionMessage.create({
         sessionId,
@@ -44,6 +42,7 @@ router.post("/", async (req, res) => {
         role: "user",
         content: lastUserPrompt,
         mood: null,
+        meta: { perception },
       });
     }
 
