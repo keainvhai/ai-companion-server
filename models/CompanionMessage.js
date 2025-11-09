@@ -22,6 +22,14 @@ module.exports = (sequelize, DataTypes) => {
         type: DataTypes.STRING,
         allowNull: true,
       },
+      // ✅ 新增字段
+      source: {
+        type: DataTypes.ENUM("text", "virtual-human"),
+        allowNull: false,
+        defaultValue: "text",
+      },
+      emotion: { type: DataTypes.STRING, allowNull: true },
+      transcript: { type: DataTypes.TEXT, allowNull: true },
       meta: {
         type: DataTypes.JSON, // ← 用来存每层分析结果
         allowNull: true,
