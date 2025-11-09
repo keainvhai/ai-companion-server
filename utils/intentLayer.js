@@ -1,6 +1,11 @@
 // server/utils/intentLayer.js
 // ------------------------------------------------------------
 // 任务：识别用户此刻的“交流意图”
+// 参考 Disclosure & Support Context 下的四类语用行为（speech acts）：
+// Venting:emotional ventilation
+// Seeking Advice:problem-focused disclosure
+// Crisis: crisis disclosure
+// Casual: phatic communication）
 // 输出：{ intent: "venting" | "seeking_advice" | "crisis" | "casual",
 //        confidence: 0~1, source: "rule" | "llm" }
 // 策略：规则优先（低成本、可解释），不确定时用 LLM 兜底
@@ -8,7 +13,7 @@
 
 const OpenAI = require("openai");
 
-// —— 关键词表（可按需扩充）——
+// —— 关键词表（需扩充）——
 const ADVICE_KWS = [
   "what should i do",
   "how do i",
@@ -21,16 +26,7 @@ const ADVICE_KWS = [
   "contact",
   "help",
   "advice",
-  "怎么办",
-  "怎么做",
-  "如何",
-  "能不能",
-  "要不要",
-  "下一步",
-  "报警",
-  "举报",
-  "求助",
-  "建议",
+  "any suggestions",
 ];
 
 const VENTING_KWS = [
@@ -42,14 +38,10 @@ const VENTING_KWS = [
   "i feel hopeless",
   "crying",
   "shaking",
-  "太气了",
-  "崩溃",
-  "受不了",
-  "好难过",
-  "好害怕",
-  "太绝望了",
-  "快疯了",
-  "我只是想说出来",
+  "i just need to vent",
+  "so frustrating",
+  "this is insane",
+  "i hate this",
 ];
 
 const CASUAL_KWS = [
@@ -59,22 +51,20 @@ const CASUAL_KWS = [
   "lol",
   "you are kind",
   "who are you",
-  "谢谢",
-  "哈哈",
-  "好的",
-  "你是谁",
-  "晚安",
-  "👌",
-  "🙂",
+  "good night",
+  "okay",
+  "bye",
+  "see you",
+  "hi",
+  "hello",
 ];
 
-const QUESTION_RE =
-  /\?|\bwhat\b|\bhow\b|\bshould\b|\bcan\b|怎么办|怎么做|如何|吗|？/i;
+const QUESTION_RE = /\b(what|how|should|can)\b|\?/i;
 
-function includesAny(text, kws) {
-  const t = text.toLowerCase();
-  return kws.some((kw) => t.includes(kw.toLowerCase()));
-}
+// function includesAny(text, kws) {
+//   const t = text.toLowerCase();
+//   return kws.some((kw) => t.includes(kw.toLowerCase()));
+// }
 
 function scoreAdvice(text) {
   const t = text.toLowerCase();
@@ -88,7 +78,7 @@ function scoreVenting(text) {
   const t = text.toLowerCase();
   let s = 0;
   for (const kw of VENTING_KWS) if (t.includes(kw)) s += 0.18;
-  if (/[!！]{2,}/.test(text)) s += 0.12; // 强烈情绪标点
+  if (/[!]{2,}/.test(text)) s += 0.12; // 强烈情绪标点
   if (text.length > 80 && !QUESTION_RE.test(text)) s += 0.1; // 长段落+非提问更像宣泄
   return Math.min(1, s);
 }
@@ -97,7 +87,7 @@ function scoreCasual(text) {
   const t = text.toLowerCase();
   let s = 0;
   for (const kw of CASUAL_KWS) if (t.includes(kw)) s += 0.25;
-  if (/^\s*(ok|好的|行|嗯|bye)\s*$/i.test(text.trim())) s += 0.25;
+  if (/^\s*(ok|okay|sure|bye|see you)\s*$/i.test(t.trim())) s += 0.25;
   return Math.min(1, s);
 }
 
@@ -112,12 +102,12 @@ function classifyByRule(text = "", perception = null) {
   const tags = new Set(perception?.tags || []);
   const severity = perception?.severity || "low";
 
-  // 1) 危机先验：来自感知层（最强优先级）
+  // 1️⃣ Crisis (highest priority)
   if (tags.has("crisis") || severity === "critical") {
     return { intent: "crisis", confidence: 0.95, source: "rule" };
   }
 
-  // 2) 求助：问句/求助词 + 隐私/威胁上下文加分
+  // 2️⃣ Seeking advice：问句/求助词 + 隐私/威胁上下文加分
   const adviceScore =
     scoreAdvice(text) +
     (tags.has("privacy_leak") || tags.has("threat") ? 0.15 : 0);
@@ -129,7 +119,7 @@ function classifyByRule(text = "", perception = null) {
     };
   }
 
-  // 3) 宣泄：强情绪词 + 非问句 + 感知层 distress 加分
+  //  3️⃣ Venting强情绪词 + 非问句 + 感知层 distress 加分
   const ventScore = scoreVenting(text) + (tags.has("distress") ? 0.15 : 0);
   if (ventScore >= 0.6) {
     return {
@@ -139,7 +129,7 @@ function classifyByRule(text = "", perception = null) {
     };
   }
 
-  // 4) 轻松/寒暄
+  // 4️⃣ Casual / social
   const casualScore = scoreCasual(text);
   if (casualScore >= 0.6) {
     return {
@@ -149,7 +139,7 @@ function classifyByRule(text = "", perception = null) {
     };
   }
 
-  // 5) 暂不确定：给一个低置信度的猜测（用于触发 LLM 兜底）
+  // 5️⃣ Uncertain — low confidence (for LLM fallback)
   // 如果有 distress 标签 → 倾向 venting，否则倾向 seeking_advice（保守）
   if (tags.has("distress")) {
     return { intent: "venting", confidence: 0.45, source: "rule" };
@@ -166,23 +156,31 @@ function classifyByRule(text = "", perception = null) {
 async function classifyByLLM(text, openaiClient) {
   const openai = openaiClient || new OpenAI({ apiKey: process.env.API_KEY });
 
-  const prompt = `
-Classify the user's intent into exactly one of:
-["venting","seeking_advice","crisis","casual"].
-
-Return a pure JSON with fields: intent (string), confidence (0~1 number).
-User message: """${text}"""
-`;
+  const messages = [
+    {
+      role: "system",
+      content:
+        "You are a classifier. Only output valid JSON with fields {intent, confidence}.",
+    },
+    {
+      role: "user",
+      content: `Classify the user's intent into exactly one of ["venting","seeking_advice","crisis","casual"]. Return a pure JSON.\nUser message: """${text}"""`,
+    },
+  ];
 
   const res = await openai.chat.completions.create({
     model: "gpt-4o-mini",
-    messages: [{ role: "user", content: prompt }],
+    // messages: [{ role: "user", content: prompt }],
     temperature: 0.2,
+    // response_format: { type: "json_object" }, // 如果模型支持就打开
+    messages,
   });
 
   // 尝试解析；失败则给一个保守值
+  const raw = res?.choices?.[0]?.message?.content ?? "";
+
   try {
-    const parsed = JSON.parse(res.choices[0].message.content);
+    const parsed = JSON.parse(raw);
     const intent = String(parsed.intent || "").toLowerCase();
     const confidence = Math.max(
       0,
@@ -201,7 +199,7 @@ User message: """${text}"""
  * @param {object} perception 感知层输出
  * @param {{ useLLM?: boolean, openai?: any, minConfidence?: number }} opts
  */
-async function intentLayer(text, perception, opts = {}) {
+async function intentLayer(text = "", perception, opts = {}) {
   const { useLLM = true, openai = null, minConfidence = 0.6 } = opts;
 
   // 先规则

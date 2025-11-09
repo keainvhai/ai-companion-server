@@ -9,7 +9,7 @@ const db = require("./models");
 const app = express();
 app.use(
   cors({
-    origin: "https://ai-companion-dox.vercel.app",
+    origin: ["http://localhost:5173", "https://ai-companion-dox.vercel.app"],
   })
 );
 app.use(express.json());
@@ -22,6 +22,8 @@ app.get("/", (req, res) => {
 // 引入路由
 const companionRoutes = require("./routes/companion");
 app.use("/companion", companionRoutes);
+
+app.use("/test-intent", require("./routes/testIntent"));
 
 // 测试数据库连接
 db.sequelize

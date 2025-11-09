@@ -4,7 +4,8 @@ const OpenAI = require("openai");
 
 const { CompanionMessage } = require("../models");
 
-const perceptionLayer = require("../utils/perceptionLayer");
+// const perceptionLayer = require("../utils/perceptionLayer");
+// const intentLayer = require("../utils/intentLayer");
 
 require("dotenv").config();
 
@@ -31,8 +32,20 @@ router.post("/", async (req, res) => {
       .map((m) => m.content.trim())
       .pop();
 
-    // 2️⃣ 调用感知层分析
-    const perception = perceptionLayer(lastUserPrompt);
+    // // 2️⃣ 调用感知层分析
+    // const perception = await perceptionLayer(lastUserPrompt, {
+    //   useLLM: true,
+    //   openaiClient: openai,
+    //   minConfidence: 0.5,
+    // });
+
+    // console.log("🧩 Perception:", perception);
+    // // 意图层（规则优先，低置信度才走 LLM）
+    // const intent = await intentLayer(lastUserPrompt, perception, {
+    //   useLLM: true, // 可设为 false
+    //   minConfidence: 0.6, // 低于此分数才触发 LLM 兜底
+    //   openai: openai,
+    // });
 
     // 3️⃣ 保存用户消息（带 meta）
     if (lastUserPrompt) {
@@ -42,7 +55,7 @@ router.post("/", async (req, res) => {
         role: "user",
         content: lastUserPrompt,
         mood: null,
-        meta: { perception },
+        // meta: { perception, intent },
       });
     }
 
@@ -53,16 +66,20 @@ router.post("/", async (req, res) => {
         {
           role: "system",
           content: `
-You are a warm, empathetic AI assistant embedded in a public-interest platform that helps people affected by online harm, especially doxxing.
+You are a warm, empathetic AI assistant embedded in a public-interest platform that supports people affected by online harm, especially doxxing.
 
-Your primary role is to provide emotional support and helpful information in a respectful and non-judgmental way.
+Your role is to provide both emotional comfort and gentle guidance that encourages safe self-expression and storytelling.
 
-Important Guidelines:
-- Be a good listener first. Let the user express their feelings safely.
-- Respond with warmth and validation before giving suggestions.
-- Make clear that you are **not a lawyer** and cannot provide official legal advice.
-- Prioritize emotional safety above all.
-Tone: Always caring, calm, and emotionally supportive.
+Core Principles:
+1. Emotional Safety First — respond with calm, validation, and empathy. Make users feel heard and accepted.
+2. Gentle Disclosure Encouragement — invite users to share what happened or how they felt, without pressure. Use soft, open-ended questions such as “Would you like to tell me a bit more about that?” or “You can start wherever you feel comfortable.”
+3. Active Listening — reflect users' emotions accurately before asking about details.
+4. Ethical Boundaries — make clear you are **not a lawyer** and cannot give legal advice.
+5. Empowerment — help users regain a sense of control by offering coping suggestions, resources, or next steps only after validation.
+
+Tone: calm, compassionate, and gently curious.  
+Your language should always balance **emotional validation** with **safe encouragement to share more**.
+
 `,
         },
         ...messages,
@@ -85,13 +102,20 @@ Tone: Always caring, calm, and emotionally supportive.
           {
             role: "system",
             content: `
-Classify the following AI reply into one of four moods:
-- "neutral"
-- "happy"
-- "sad"
-- "caring"
+You are an emotion classifier for empathetic AI responses.
+Classify the *tone* of the following AI reply into exactly one of these moods:
 
-Only return one word, no explanation.
+1. neutral — purely informational or calm statements.
+2. caring — compassionate, emotionally validating, warm tone.
+3. soothing — comforting, lowering distress or anxiety.
+4. supportive — encouraging, uplifting, promoting self-expression.
+5. concerned — expressing worry, protective tone, or caution.
+6. hopeful — optimistic, inspiring positive outlook.
+7. curious — gently inquisitive, inviting more sharing.
+8. reassuring — confirming safety or stability after distress.
+
+Return **only one word**, exactly one of the eight above, in lowercase.
+Do not output anything else.
 `,
           },
           { role: "user", content: reply },
@@ -99,6 +123,11 @@ Only return one word, no explanation.
       });
 
       mood = moodCompletion.choices[0].message.content.trim().toLowerCase();
+
+      console.log(
+        "🧩 Raw mood output:",
+        moodCompletion.choices[0].message.content
+      );
     } catch (moodErr) {
       console.warn("⚠️ Mood detection failed, fallback to neutral:", moodErr);
     }
